@@ -1,4 +1,3 @@
-
 from web3 import Web3
 from web3.contract import Contract
 from web3.providers.rpc import HTTPProvider
@@ -19,7 +18,7 @@ def connectTo(chain):
 
     if chain in ['avax', 'bsc']:
         w3 = Web3(Web3.HTTPProvider(api_url))
-        # inject the poa compatibility middleware to the innermost layer
+        # Inject the POA compatibility middleware to the innermost layer
         w3.middleware_onion.inject(geth_poa_middleware, layer=0)
         return w3
 
@@ -79,33 +78,59 @@ def scanBlocks(chain):
             call_function('withdraw', src_contract, dest_contract, events, w3_src)
 
 def call_function(f_name, src_contract, dest_contract, events, w3):
-    warden_private_key = '0x67f73a68a506dfcc9969be21bd68fd86542d4810296e9e148d1b6574fc9442aa'
+    warden_private_key = 'YOUR_WARDEN_PRIVATE_KEY'
     warden_account = w3.eth.account.from_key(warden_private_key)
-    gas = 500000 if f_name == 'withdraw' else 5000000
-
-    transaction_dict = {
-        "from": warden_account.address,
-        "nonce": w3.eth.get_transaction_count(warden_account.address),
-        "gas": gas,
-        "gasPrice": w3.eth.gas_price + 10000
-    }
 
     for event in events:
+        transaction_dict = {
+            "from": warden_account.address,
+            "nonce": w3.eth.get_transaction_count(warden_account.address),
+            "gas": 500000,
+            "gasPrice": w3.eth.gas_price + 10000
+        }
+
         if f_name == 'wrap':
-            returned = dest_contract.functions.wrap(
+            tx = dest_contract.functions.wrap(
                 event["args"]["token"],
                 event["args"]["recipient"],
                 event["args"]["amount"]
-            )
+            ).buildTransaction(transaction_dict)
         elif f_name == 'withdraw':
-            returned = src_contract.functions.withdraw(
+            tx = src_contract.functions.withdraw(
                 event["args"]["underlying_token"],
                 event["args"]["to"],
                 event["args"]["amount"]
-            )
-        transaction = returned.build_transaction(transaction_dict)
+            ).buildTransaction(transaction_dict)
 
-        signed_tx = w3.eth.account.sign_transaction(transaction, private_key=warden_private_key)
-        tx_hash = w3.eth.send_raw_transaction(signed_tx.rawTransaction)
-        w3.eth.wait_for_transaction_receipt(tx_hash)
-        print("Successfully sent", f_name, "raw transaction! tx_hash:", tx_hash.hex())
+        while True:
+            try:
+                signed_tx = w3.eth.account.sign_transaction(tx, private_key=warden_private_key)
+                tx_hash = w3.eth.send_raw_transaction(signed_tx.rawTransaction)
+                w3.eth.wait_for_transaction_receipt(tx_hash)
+                print("Successfully sent", f_name, "transaction! tx_hash:", tx_hash.hex())
+                break
+            except ValueError as e:
+                error_message = str(e)
+                if 'nonce too low' in error_message:
+                    print("Nonce too low, updating nonce and retrying...")
+                    transaction_dict["nonce"] = w3.eth.get_transaction_count(warden_account.address)
+                    tx = tx.buildTransaction(transaction_dict)
+                else:
+                    print(f"Error sending transaction: {e}")
+                    break
+
+def main():
+    # Check for arguments to decide which chain to scan
+    if len(sys.argv) != 2:
+        print("Usage: python bridge.py [source|destination]")
+        sys.exit(1)
+
+    chain = sys.argv[1]
+    if chain not in ['source', 'destination']:
+        print("Invalid argument: must be 'source' or 'destination'")
+        sys.exit(1)
+
+    scanBlocks(chain)
+
+if __name__ == '__main__':
+    main()
