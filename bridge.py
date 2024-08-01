@@ -2,8 +2,6 @@ from web3 import Web3
 from web3.contract import Contract
 from web3.providers.rpc import HTTPProvider
 from web3.middleware import geth_poa_middleware  # Necessary for POA chains
-from web3._utils.validation import validate_address
-from web3.exceptions import InvalidAddress
 import json
 import sys
 from pathlib import Path
@@ -41,12 +39,10 @@ def getContractInfo(chain):
 
     return contracts[chain]
 
-def toChecksumAddress(w3, address):
-    try:
-        validate_address(address)
-    except InvalidAddress:
-        raise ValueError(f"Invalid address format: {address}")
-    return w3.toChecksumAddress(address)
+def toChecksumAddress(address):
+    if not Web3.isAddress(address):
+        raise ValueError(f"Invalid address: {address}")
+    return Web3.toChecksumAddress(address)
 
 def scanBlocks(chain):
     """
@@ -65,10 +61,10 @@ def scanBlocks(chain):
     w3_dest = connectTo(destination_chain)
 
     src_contract_info = getContractInfo('source')
-    src_contract = w3_src.eth.contract(address=toChecksumAddress(w3_src, src_contract_info['address']), abi=src_contract_info['abi'])
+    src_contract = w3_src.eth.contract(address=toChecksumAddress(src_contract_info['address']), abi=src_contract_info['abi'])
 
     dest_contract_info = getContractInfo('destination')
-    dest_contract = w3_dest.eth.contract(address=toChecksumAddress(w3_dest, dest_contract_info['address']), abi=dest_contract_info['abi'])
+    dest_contract = w3_dest.eth.contract(address=toChecksumAddress(dest_contract_info['address']), abi=dest_contract_info['abi'])
 
     w3 = w3_src if chain == 'source' else w3_dest
     end_block = w3.eth.get_block_number()
@@ -91,28 +87,29 @@ def call_function(f_name, src_contract, dest_contract, events, w3):
     warden_account = w3.eth.account.from_key(warden_private_key)
 
     for event in events:
-        transaction_dict = {
-            "from": warden_account.address,
-            "nonce": w3.eth.get_transaction_count(warden_account.address),
-            "gas": 500000,
-            "gasPrice": w3.eth.gas_price + 10000
-        }
-
-        if f_name == 'wrap':
-            tx = dest_contract.functions.wrap(
-                toChecksumAddress(w3, event["args"]["token"]),
-                toChecksumAddress(w3, event["args"]["recipient"]),
-                event["args"]["amount"]
-            ).buildTransaction(transaction_dict)
-        elif f_name == 'withdraw':
-            tx = src_contract.functions.withdraw(
-                toChecksumAddress(w3, event["args"]["underlying_token"]),
-                toChecksumAddress(w3, event["args"]["to"]),
-                event["args"]["amount"]
-            ).buildTransaction(transaction_dict)
-
         while True:
             try:
+                nonce = w3.eth.get_transaction_count(warden_account.address)
+                transaction_dict = {
+                    "from": warden_account.address,
+                    "nonce": nonce,
+                    "gas": 500000,
+                    "gasPrice": w3.eth.gas_price + 10000
+                }
+
+                if f_name == 'wrap':
+                    tx = dest_contract.functions.wrap(
+                        toChecksumAddress(event["args"]["token"]),
+                        toChecksumAddress(event["args"]["recipient"]),
+                        event["args"]["amount"]
+                    ).buildTransaction(transaction_dict)
+                elif f_name == 'withdraw':
+                    tx = src_contract.functions.withdraw(
+                        toChecksumAddress(event["args"]["underlying_token"]),
+                        toChecksumAddress(event["args"]["to"]),
+                        event["args"]["amount"]
+                    ).buildTransaction(transaction_dict)
+
                 signed_tx = w3.eth.account.sign_transaction(tx, private_key=warden_private_key)
                 tx_hash = w3.eth.send_raw_transaction(signed_tx.rawTransaction)
                 w3.eth.wait_for_transaction_receipt(tx_hash)
@@ -122,8 +119,6 @@ def call_function(f_name, src_contract, dest_contract, events, w3):
                 error_message = str(e)
                 if 'nonce too low' in error_message:
                     print("Nonce too low, updating nonce and retrying...")
-                    transaction_dict["nonce"] = w3.eth.get_transaction_count(warden_account.address)
-                    tx = tx.buildTransaction(transaction_dict)
                 else:
                     print(f"Error sending transaction: {e}")
                     break
