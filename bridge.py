@@ -3,6 +3,7 @@ from web3.middleware import geth_poa_middleware  # Necessary for POA chains
 import json
 import sys
 from pathlib import Path
+import re
 
 source_chain = 'avax'
 destination_chain = 'bsc'
@@ -36,12 +37,33 @@ def getContractInfo(chain):
 
     return contracts[chain]
 
+def isValidHex(value):
+    try:
+        int(value, 16)
+        return True
+    except ValueError:
+        return False
+
+def checksum_encode(address):
+    if not isValidHex(address):
+        raise ValueError(f"Invalid address: {address}")
+    address = address.lower().replace('0x', '')
+    checksummed_address = '0x'
+
+    hash_chars = Web3.keccak(text=address).hex()[2:]
+    for i, c in enumerate(address):
+        if int(hash_chars[i], 16) > 7:
+            checksummed_address += c.upper()
+        else:
+            checksummed_address += c
+    return checksummed_address
+
 def scanBlocks(chain):
     """
     chain - (string) should be either "source" or "destination"
     Scan the last 5 blocks of the source and destination chains
     Look for 'Deposit' events on the source chain and 'Unwrap' events on the destination chain
-    When Deposit events are found on the source chain, call the 'wrap' function on the destination chain
+    When Deposit events are found on the source chain, call the 'wrap' function the destination chain
     When Unwrap events are found on the destination chain, call the 'withdraw' function on the source chain
     """
 
@@ -53,10 +75,12 @@ def scanBlocks(chain):
     w3_dest = connectTo(destination_chain)
 
     src_contract_info = getContractInfo('source')
-    src_contract = w3_src.eth.contract(address=src_contract_info['address'], abi=src_contract_info['abi'])
+    src_contract_address = checksum_encode(src_contract_info['address'])
+    src_contract = w3_src.eth.contract(address=src_contract_address, abi=src_contract_info['abi'])
 
     dest_contract_info = getContractInfo('destination')
-    dest_contract = w3_dest.eth.contract(address=dest_contract_info['address'], abi=dest_contract_info['abi'])
+    dest_contract_address = checksum_encode(dest_contract_info['address'])
+    dest_contract = w3_dest.eth.contract(address=dest_contract_address, abi=dest_contract_info['abi'])
 
     w3 = w3_src if chain == 'source' else w3_dest
     end_block = w3.eth.block_number
@@ -86,14 +110,14 @@ def call_function(f_name, src_contract, dest_contract, events, w3):
 
         if f_name == 'wrap':
             tx = dest_contract.functions.wrap(
-                event["args"]["token"],
-                event["args"]["recipient"],
+                checksum_encode(event["args"]["token"]),
+                checksum_encode(event["args"]["recipient"]),
                 event["args"]["amount"]
             ).buildTransaction(transaction_dict)
         elif f_name == 'withdraw':
             tx = src_contract.functions.withdraw(
-                event["args"]["underlying_token"],
-                event["args"]["to"],
+                checksum_encode(event["args"]["underlying_token"]),
+                checksum_encode(event["args"]["to"]),
                 event["args"]["amount"]
             ).buildTransaction(transaction_dict)
 
