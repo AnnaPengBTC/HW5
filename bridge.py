@@ -1,10 +1,9 @@
 from web3 import Web3
-from web3.contract import Contract
-from web3.providers.rpc import HTTPProvider
 from web3.middleware import geth_poa_middleware  # Necessary for POA chains
 import json
 import sys
 from pathlib import Path
+import re
 
 source_chain = 'avax'
 destination_chain = 'bsc'
@@ -40,9 +39,7 @@ def getContractInfo(chain):
     return contracts[chain]
 
 def isValidAddress(address):
-    if re.match(r'^0x[a-fA-F0-9]{40}$', address):
-        return True
-    return False
+    return re.match(r'^0x[a-fA-F0-9]{40}$', address) is not None
 
 def checksum_encode(address):  # Takes a 42-byte hex string and returns a checksummed address
     address = address.lower().replace('0x', '')
@@ -55,6 +52,24 @@ def checksum_encode(address):  # Takes a 42-byte hex string and returns a checks
         else:
             checksummed_address += c
     return checksummed_address
+
+def get_event_logs(w3, contract, event_name, from_block, to_block):
+    event_abi = next((event for event in contract.events._events if event['name'] == event_name), None)
+    if not event_abi:
+        print(f"No ABI found for event: {event_name}")
+        return []
+
+    event_signature_hash = w3.keccak(text=f"{event_name}({','.join([input['type'] for input in event_abi['inputs']])})").hex()
+
+    filter_params = {
+        'fromBlock': from_block,
+        'toBlock': to_block,
+        'address': contract.address,
+        'topics': [event_signature_hash]
+    }
+
+    logs = w3.eth.get_logs(filter_params)
+    return [contract.events[event_name]().process_log(log) for log in logs]
 
 def scanBlocks(chain):
     """
@@ -82,17 +97,12 @@ def scanBlocks(chain):
     end_block = w3.eth.get_block_number()
     start_block = end_block - 5
 
-    arg_filter = {}
-
-    for block_num in range(start_block, end_block + 1):
-        if chain == 'source':
-            event_filter = src_contract.events.Deposit.createFilter(fromBlock=start_block, toBlock=end_block, argument_filters=arg_filter)
-            events = event_filter.get_all_entries()
-            call_function('wrap', src_contract, dest_contract, events, w3_dest)
-        elif chain == 'destination':
-            event_filter = dest_contract.events.Unwrap.createFilter(fromBlock=start_block, toBlock=end_block, argument_filters=arg_filter)
-            events = event_filter.get_all_entries()
-            call_function('withdraw', src_contract, dest_contract, events, w3_src)
+    if chain == 'source':
+        events = get_event_logs(w3_src, src_contract, 'Deposit', start_block, end_block)
+        call_function('wrap', src_contract, dest_contract, events, w3_dest)
+    elif chain == 'destination':
+        events = get_event_logs(w3_dest, dest_contract, 'Unwrap', start_block, end_block)
+        call_function('withdraw', src_contract, dest_contract, events, w3_src)
 
 def call_function(f_name, src_contract, dest_contract, events, w3):
     warden_private_key = 'YOUR_WARDEN_PRIVATE_KEY'
@@ -111,15 +121,15 @@ def call_function(f_name, src_contract, dest_contract, events, w3):
 
                 if f_name == 'wrap':
                     tx = dest_contract.functions.wrap(
-                        checksum_encode(event["args"]["token"]),
-                        checksum_encode(event["args"]["recipient"]),
-                        event["args"]["amount"]
+                        checksum_encode(event['args']['token']),
+                        checksum_encode(event['args']['recipient']),
+                        event['args']['amount']
                     ).buildTransaction(transaction_dict)
                 elif f_name == 'withdraw':
                     tx = src_contract.functions.withdraw(
-                        checksum_encode(event["args"]["underlying_token"]),
-                        checksum_encode(event["args"]["to"]),
-                        event["args"]["amount"]
+                        checksum_encode(event['args']['underlying_token']),
+                        checksum_encode(event['args']['to']),
+                        event['args']['amount']
                     ).buildTransaction(transaction_dict)
 
                 signed_tx = w3.eth.account.sign_transaction(tx, private_key=warden_private_key)
