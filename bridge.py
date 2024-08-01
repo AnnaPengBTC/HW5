@@ -2,7 +2,8 @@ from web3 import Web3
 from web3.contract import Contract
 from web3.providers.rpc import HTTPProvider
 from web3.middleware import geth_poa_middleware  # Necessary for POA chains
-from web3 import toChecksumAddress  # Import toChecksumAddress directly
+from web3._utils.validation import validate_address
+from web3.exceptions import InvalidAddress
 import json
 import sys
 from pathlib import Path
@@ -40,6 +41,13 @@ def getContractInfo(chain):
 
     return contracts[chain]
 
+def toChecksumAddress(w3, address):
+    try:
+        validate_address(address)
+    except InvalidAddress:
+        raise ValueError(f"Invalid address format: {address}")
+    return w3.toChecksumAddress(address)
+
 def scanBlocks(chain):
     """
     chain - (string) should be either "source" or "destination"
@@ -57,10 +65,10 @@ def scanBlocks(chain):
     w3_dest = connectTo(destination_chain)
 
     src_contract_info = getContractInfo('source')
-    src_contract = w3_src.eth.contract(address=w3_src.toChecksumAddress(src_contract_info['address']), abi=src_contract_info['abi'])
+    src_contract = w3_src.eth.contract(address=toChecksumAddress(w3_src, src_contract_info['address']), abi=src_contract_info['abi'])
 
     dest_contract_info = getContractInfo('destination')
-    dest_contract = w3_dest.eth.contract(address=w3_dest.toChecksumAddress(dest_contract_info['address']), abi=dest_contract_info['abi'])
+    dest_contract = w3_dest.eth.contract(address=toChecksumAddress(w3_dest, dest_contract_info['address']), abi=dest_contract_info['abi'])
 
     w3 = w3_src if chain == 'source' else w3_dest
     end_block = w3.eth.get_block_number()
@@ -92,14 +100,14 @@ def call_function(f_name, src_contract, dest_contract, events, w3):
 
         if f_name == 'wrap':
             tx = dest_contract.functions.wrap(
-                w3.toChecksumAddress(event["args"]["token"]),
-                w3.toChecksumAddress(event["args"]["recipient"]),
+                toChecksumAddress(w3, event["args"]["token"]),
+                toChecksumAddress(w3, event["args"]["recipient"]),
                 event["args"]["amount"]
             ).buildTransaction(transaction_dict)
         elif f_name == 'withdraw':
             tx = src_contract.functions.withdraw(
-                w3.toChecksumAddress(event["args"]["underlying_token"]),
-                w3.toChecksumAddress(event["args"]["to"]),
+                toChecksumAddress(w3, event["args"]["underlying_token"]),
+                toChecksumAddress(w3, event["args"]["to"]),
                 event["args"]["amount"]
             ).buildTransaction(transaction_dict)
 
