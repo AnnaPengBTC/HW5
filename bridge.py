@@ -41,7 +41,9 @@ def getContractInfo(chain):
 def isValidAddress(address):
     return re.match(r'^0x[a-fA-F0-9]{40}$', address) is not None
 
-def checksum_encode(address):  # Takes a 42-byte hex string and returns a checksummed address
+def checksum_encode(address):
+    if not isValidAddress(address):
+        raise ValueError(f"Invalid address: {address}")
     address = address.lower().replace('0x', '')
     checksummed_address = '0x'
 
@@ -69,7 +71,7 @@ def get_event_logs(w3, contract, event_name, from_block, to_block):
     }
 
     logs = w3.eth.get_logs(filter_params)
-    return [contract.events[event_name]().process_log(log) for log in logs]
+    return [contract.events[event_name]().processLog(log) for log in logs]
 
 def scanBlocks(chain):
     """
