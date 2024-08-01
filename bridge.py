@@ -56,10 +56,10 @@ def scanBlocks(chain):
     w3_dest = connectTo(destination_chain)
 
     src_contract_info = getContractInfo('source')
-    src_contract = w3_src.eth.contract(address=Web3.toChecksumAddress(src_contract_info['address']), abi=src_contract_info['abi'])
+    src_contract = w3_src.eth.contract(address=w3_src.toChecksumAddress(src_contract_info['address']), abi=src_contract_info['abi'])
 
     dest_contract_info = getContractInfo('destination')
-    dest_contract = w3_dest.eth.contract(address=Web3.toChecksumAddress(dest_contract_info['address']), abi=dest_contract_info['abi'])
+    dest_contract = w3_dest.eth.contract(address=w3_dest.toChecksumAddress(dest_contract_info['address']), abi=dest_contract_info['abi'])
 
     w3 = w3_src if chain == 'source' else w3_dest
     end_block = w3.eth.get_block_number()
@@ -91,14 +91,14 @@ def call_function(f_name, src_contract, dest_contract, events, w3):
 
         if f_name == 'wrap':
             tx = dest_contract.functions.wrap(
-                Web3.toChecksumAddress(event["args"]["token"]),
-                Web3.toChecksumAddress(event["args"]["recipient"]),
+                w3.toChecksumAddress(event["args"]["token"]),
+                w3.toChecksumAddress(event["args"]["recipient"]),
                 event["args"]["amount"]
             ).buildTransaction(transaction_dict)
         elif f_name == 'withdraw':
             tx = src_contract.functions.withdraw(
-                Web3.toChecksumAddress(event["args"]["underlying_token"]),
-                Web3.toChecksumAddress(event["args"]["to"]),
+                w3.toChecksumAddress(event["args"]["underlying_token"]),
+                w3.toChecksumAddress(event["args"]["to"]),
                 event["args"]["amount"]
             ).buildTransaction(transaction_dict)
 
