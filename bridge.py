@@ -1,10 +1,9 @@
 from web3 import Web3
-from web3.contract import Contract
-from web3.providers.rpc import HTTPProvider
 from web3.middleware import geth_poa_middleware  # Necessary for POA chains
 import json
 import sys
 from pathlib import Path
+import re
 
 source_chain = 'avax'
 destination_chain = 'bsc'
@@ -39,8 +38,13 @@ def getContractInfo(chain):
 
     return contracts[chain]
 
+def isValidAddress(address):
+    if re.match(r'^0x[a-fA-F0-9]{40}$', address):
+        return True
+    return False
+
 def toChecksumAddress(address):
-    if not Web3.isAddress(address):
+    if not isValidAddress(address):
         raise ValueError(f"Invalid address: {address}")
     return Web3.toChecksumAddress(address)
 
