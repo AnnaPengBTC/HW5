@@ -45,7 +45,7 @@ def isValidHex(value):
         return False
 
 def checksum_encode(address):
-    if not isValidHex(address):
+    if not isValidHex(address[2:]):
         raise ValueError(f"Invalid address: {address}")
     address = address.lower().replace('0x', '')
     checksummed_address = '0x'
