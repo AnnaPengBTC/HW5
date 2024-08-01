@@ -71,29 +71,33 @@ def scanBlocks(chain):
         print(f"Invalid chain: {chain}")
         return
 
-    w3_src = connectTo(source_chain)
-    w3_dest = connectTo(destination_chain)
+    try:
+        w3_src = connectTo(source_chain)
+        w3_dest = connectTo(destination_chain)
 
-    src_contract_info = getContractInfo('source')
-    src_contract_address = checksum_encode(src_contract_info['address'])
-    src_contract = w3_src.eth.contract(address=src_contract_address, abi=src_contract_info['abi'])
+        src_contract_info = getContractInfo('source')
+        src_contract_address = checksum_encode(src_contract_info['address'])
+        src_contract = w3_src.eth.contract(address=src_contract_address, abi=src_contract_info['abi'])
 
-    dest_contract_info = getContractInfo('destination')
-    dest_contract_address = checksum_encode(dest_contract_info['address'])
-    dest_contract = w3_dest.eth.contract(address=dest_contract_address, abi=dest_contract_info['abi'])
+        dest_contract_info = getContractInfo('destination')
+        dest_contract_address = checksum_encode(dest_contract_info['address'])
+        dest_contract = w3_dest.eth.contract(address=dest_contract_address, abi=dest_contract_info['abi'])
 
-    w3 = w3_src if chain == 'source' else w3_dest
-    end_block = w3.eth.block_number
-    start_block = end_block - 5
+        w3 = w3_src if chain == 'source' else w3_dest
+        end_block = w3.eth.block_number
+        start_block = end_block - 5
 
-    if chain == 'source':
-        event_filter = src_contract.events.Deposit.create_filter(fromBlock=start_block, toBlock=end_block)
-        events = event_filter.get_all_entries()
-        call_function('wrap', src_contract, dest_contract, events, w3_dest)
-    elif chain == 'destination':
-        event_filter = dest_contract.events.Unwrap.create_filter(fromBlock=start_block, toBlock=end_block)
-        events = event_filter.get_all_entries()
-        call_function('withdraw', src_contract, dest_contract, events, w3_src)
+        if chain == 'source':
+            event_filter = src_contract.events.Deposit.create_filter(fromBlock=start_block, toBlock=end_block)
+            events = event_filter.get_all_entries()
+            call_function('wrap', src_contract, dest_contract, events, w3_dest)
+        elif chain == 'destination':
+            event_filter = dest_contract.events.Unwrap.create_filter(fromBlock=start_block, toBlock=end_block)
+            events = event_filter.get_all_entries()
+            call_function('withdraw', src_contract, dest_contract, events, w3_src)
+    except ValueError as e:
+        print(f"Error running scanBlocks('{chain}')")
+        print(e)
 
 def call_function(f_name, src_contract, dest_contract, events, w3):
     warden_private_key = 'YOUR_WARDEN_PRIVATE_KEY'
@@ -101,30 +105,34 @@ def call_function(f_name, src_contract, dest_contract, events, w3):
     gas = 500000 if f_name == 'withdraw' else 5000000
 
     for event in events:
-        transaction_dict = {
-            "from": warden_account.address,
-            "nonce": w3.eth.get_transaction_count(warden_account.address),
-            "gas": gas,
-            "gasPrice": w3.eth.gas_price
-        }
+        try:
+            transaction_dict = {
+                "from": warden_account.address,
+                "nonce": w3.eth.get_transaction_count(warden_account.address),
+                "gas": gas,
+                "gasPrice": w3.eth.gas_price
+            }
 
-        if f_name == 'wrap':
-            tx = dest_contract.functions.wrap(
-                checksum_encode(event["args"]["token"]),
-                checksum_encode(event["args"]["recipient"]),
-                event["args"]["amount"]
-            ).buildTransaction(transaction_dict)
-        elif f_name == 'withdraw':
-            tx = src_contract.functions.withdraw(
-                checksum_encode(event["args"]["underlying_token"]),
-                checksum_encode(event["args"]["to"]),
-                event["args"]["amount"]
-            ).buildTransaction(transaction_dict)
+            if f_name == 'wrap':
+                tx = dest_contract.functions.wrap(
+                    checksum_encode(event["args"]["token"]),
+                    checksum_encode(event["args"]["recipient"]),
+                    event["args"]["amount"]
+                ).buildTransaction(transaction_dict)
+            elif f_name == 'withdraw':
+                tx = src_contract.functions.withdraw(
+                    checksum_encode(event["args"]["underlying_token"]),
+                    checksum_encode(event["args"]["to"]),
+                    event["args"]["amount"]
+                ).buildTransaction(transaction_dict)
 
-        signed_tx = w3.eth.account.sign_transaction(tx, private_key=warden_private_key)
-        tx_hash = w3.eth.send_raw_transaction(signed_tx.rawTransaction)
-        w3.eth.wait_for_transaction_receipt(tx_hash)
-        print("Successfully sent", f_name, "transaction! tx_hash:", tx_hash.hex())
+            signed_tx = w3.eth.account.sign_transaction(tx, private_key=warden_private_key)
+            tx_hash = w3.eth.send_raw_transaction(signed_tx.rawTransaction)
+            w3.eth.wait_for_transaction_receipt(tx_hash)
+            print("Successfully sent", f_name, "transaction! tx_hash:", tx_hash.hex())
+        except ValueError as e:
+            print(f"Error sending {f_name} transaction")
+            print(e)
 
 def main():
     # Check for arguments to decide which chain to scan
