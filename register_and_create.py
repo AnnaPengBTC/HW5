@@ -64,7 +64,7 @@ for token in tokens:
     ).build_transaction({
         'from': deployer_address,
         'nonce': nonce,
-        'gas': 500000,
+        'gas': 1400000,
         'gasPrice': bsc_web3.to_wei('50', 'gwei')
     })
 
