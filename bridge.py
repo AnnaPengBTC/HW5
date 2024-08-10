@@ -93,7 +93,7 @@ def scanBlocks(chain):
             txn = source_contract.functions.withdraw(event.args['underlying_token'], event.args['to'], event.args['amount']).build_transaction({
             'from': account_address,
             'chainId': w3_src.eth.chain_id,
-            'gas': 500000,
+            'gas': 1000000,
             'nonce': w3_src.eth.get_transaction_count(account_address)
             })
             signed_txn = w3_src.eth.account.sign_transaction(txn, private_key=private_key)
